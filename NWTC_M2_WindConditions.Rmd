@@ -33,7 +33,7 @@ The analysis presented here uses data from a cup anemometer and wind vane mounte
 If you are reading the PDF, you are reading a document created from an R markdown file using _knit_. R markdown has been used to enable reproducible research. Replication files are available on the author's Github account[^1]^,^[^2]. 
 
 [^1]: **Current version**: `r format(Sys.time(), '%B %d, %Y')`
-[^2]: **Repository**: http://github.com/AndyClifton
+[^2]: **Repository**: https://github.com/AndyClifton/NWTCM2WindConditions
 
 # Preparing Data
 ```{r clean up, echo = FALSE, warning=FALSE}
