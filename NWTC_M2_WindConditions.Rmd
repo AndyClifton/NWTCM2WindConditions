@@ -1,0 +1,677 @@
+---
+output:
+  pdf_document:
+    includes:
+      in_header: style.sty 
+    toc: true
+    toc_depth: 2
+    citation_package: natbib
+title: "NWTC M2 Wind Conditions"
+author: Andrew Clifton 
+date: '`r format(Sys.time(), "%d %B %Y %H:%M", tz="MST7MDT")`'
+geometry: margin=1in
+sansfont: Calibri Light
+urlcolor: blue
+citecolor: blue
+bibliography: bibliography.bib
+---
+
+<!-- ## Reading the source code?
+This is R Markdown. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com> or <http://kbroman.org/knitr_knutshell/pages/Rmarkdown.html>.
+
+This script is designed to be used with RStudio. When you click the **Knit** button in RStudio a document will be generated that includes the output of any embedded R code chunks within the document. -->
+
+# About This Document
+This document describes the analysis and interpretation of data from the M2 meteorological tower at the National Renewable Energy Laboratory (NREL) National Wind Technology Center (NWTC), near Boulder, Colorado. 
+
+The M2 tower is an 82-meter (270 foot) meteorological tower located at the western edge of the NWTC Site and about 11 km (7 miles) west of Broomfield, and approximately 8 km (5 miles) south of Boulder, Colorado. The tower is located at 39° 54' 38.34" N and 105° 14' 5.28" W (datum WGS84) with its base at an elevation of 1855 meters (6085 feet) above mean sea level. 
+
+More information about the M2 tower can be found at [www.nrel.gov/midc/nwtc_m2/](https://www.nrel.gov/midc/nwtc_m2/).
+
+The analysis presented here uses data from a cup anemometer and wind vane mounted at 80 m above ground.
+
+If you are reading the PDF, you are reading a document created from an R markdown file using _knit_. R markdown has been used to enable reproducible research. Replication files are available on the author's Github account[^1]^,^[^2]. 
+
+[^1]: **Current version**: `r format(Sys.time(), '%B %d, %Y')`
+[^2]: **Repository**: http://github.com/AndyClifton
+
+# Preparing Data
+```{r clean up, echo = FALSE, warning=FALSE}
+# Let's get started.
+rm(list = ls())
+```
+
+<!-- ## User Inputs
+The following inputs are user- and project dependent. -->
+
+```{r setup, include=FALSE, warning=FALSE}
+# Data
+drive.path <- "~/Documents/public/code/R/NWTCWindConditions"
+project.path <- "NWTCM2WindConditions"
+project.root <- file.path(drive.path,project.path)
+
+project.who = "A. Clifton"
+
+# Process Raw Data?
+DO.raw = FALSE
+# if this is TRUE, it will reprocess all of the 1-minute data. Not recommended!
+```
+
+
+```{r tidy up times, echo = FALSE, warning=FALSE}
+# Use 
+Sys.setenv(TZ = "America/Denver")
+```
+
+## Directory structure
+This code stores data, figures, and other results in a directory structure at `r project.root`.
+
+```{r define file locations, message=FALSE, echo = FALSE, warning=FALSE}
+# define the working directory
+working.dir <- project.root
+setwd(working.dir)
+
+#identify data directory
+data.dir = file.path(project.root,
+                     "Data")
+
+# Figure directory
+figure.dir = file.path(project.root,
+                       "Figures")
+
+# define where functions live
+code.dir = file.path("Code")
+```
+
+Codes used for this analysis can be found in the `r code.dir` directory.
+
+```{r source project codes, echo = FALSE, warning=FALSE}
+# source these functions
+code.files = dir(code.dir, 
+                 recursive = TRUE,
+                 pattern = "\\.R$")
+for (file in code.files){
+  source(file = file.path(code.dir,file))
+}
+
+```
+
+## Required Packages
+
+The plots in this document work best with the developer versions of _ggplot2_ and _scales_ (the developer versions are required for captions). These packages can be found at [https://github.com/hadley/](https://github.com/hadley/). Installing these  versions requires the _devtools_ package. To install _devtools_ and the developer version of _ggplot2_, type:
+
+```{r install_dev_ggplot2, echo=TRUE, eval = FALSE}
+update.packages("devtools",
+                repos = "http://cran.us.r-project.org",
+                dependencies=c("Depends"),
+                ask = FALSE)
+devtools::install_github("hadley/scales",
+                         dependencies=c("Depends"))
+devtools::install_github("hadley/ggplot2",
+                         dependencies=c("Depends"))
+```
+
+<!-- Load packages -->
+This code also uses _lubridate_, _MASS_, and _RColorBrewer_. 
+```{r packages, echo = FALSE, include=FALSE, warning=FALSE}
+require(ggplot2)
+require(lubridate)
+require(MASS)
+require(RColorBrewer)
+require(knitr)
+```
+
+## Read Data
+This script reads all .csv files in `r data.dir`. These files are saved as _.Rdata_ files for each year.
+```{r Read Raw Data, cache = TRUE, echo = FALSE, warning=FALSE}
+if (DO.raw == TRUE){
+  rm(list = c("df.raw","df.new"))
+  data.files = dir(file.path(data.dir,"raw"),
+                   recursive = TRUE,
+                   pattern = "\\.csv$")
+  for (file in data.files){
+    cat(paste0("Reading ", file, "\n"))
+    df.new <- read.csv(file = file.path(data.dir,"raw",file),
+                       header = TRUE,
+                       na.strings = "-99",
+                       sep = ",",
+                       stringsAsFactors = FALSE)
+    # save the data into a usable data frame
+    if (exists("df.raw")){
+      cat(paste0("Concatening data to df.raw\n"))
+      df.raw <- rbind(df.raw,
+                      df.new)
+    } else {
+      cat(paste0("Making new df.raw\n"))
+      df.raw <- df.new
+    }
+  }
+  
+  # fix column names
+  names(df.raw)[names(df.raw)=="Avg.Wind.Speed...80m..m.s."] <- "WS80"
+  names(df.raw)[names(df.raw)=="Avg.Wind.Direction...80m..deg."] <- "WD80"
+  names(df.raw)[names(df.raw)=="Turbulence.Intensity...80m"] <- "Ti80"
+  
+  # fix time stamp
+  df.raw$DateTime.POSIXct.in <- as.POSIXct(strptime(paste0(df.raw$DATE..MM.DD.YYYY.,
+                                                           " ",
+                                                           df.raw$MST), 
+                                                    format = "%m/%d/%Y %H:%M",
+                                                    tz="America/Denver"),
+                                           tz="America/Denver")
+  # adjust time stamps to show the GMT value
+  df.raw$DateTime.POSIXct.adj <- with_tz(df.raw$DateTime.POSIXct.in,
+                                         "GMT")
+  
+  # get the unique time stamps
+  df.raw <- df.raw[!duplicated(df.raw$DateTime.POSIXct.adj),]
+  
+  # reprocess a year at a time
+  for (year.n in unique(na.exclude(year(df.raw$DateTime.POSIXct.adj)))){
+    #
+    date.start<-as.POSIXct(strptime(paste0("01/01/",year.n," 00:00"), 
+                                    format = "%m/%d/%Y %H:%M",
+                                    tz="America/Denver"),
+                           tz="America/Denver")
+    date.stop<-as.POSIXct(strptime(paste0("12/31/",year.n," 24:00"), 
+                                   format = "%m/%d/%Y %H:%M",
+                                   tz="America/Denver"),
+                          tz="America/Denver")
+    
+    # Resample to 10 minutes, starting from 00:00
+    rm(list = c("df.10min.new"))
+    df.10min.new <- data.frame(DateTime.POSIXct.adj = seq(from = date.start,
+                                                          to = date.stop,
+                                                          by = "10 min"),
+                               WS80 = NA,
+                               WD80 = NA,
+                               Ti80 = NA,
+                               n.rows = 0)
+    # identify good data
+    cc.WSWD <- complete.cases(df.raw[,c("WS80","WD80")])
+    
+    # resample data to 10-minute intervals
+    # assume the M2 data starts at the time stamp
+    for (row.i in 1:(NROW(df.10min.new)-1)){
+      # get the span of the data
+      t.start = df.10min.new$DateTime.POSIXct.adj[row.i]
+      t.stop = df.10min.new$DateTime.POSIXct.adj[row.i+1]
+      
+      cat(paste0("...", t.start ,"\n"))
+      
+      # get the rows from this interval
+      t.row.i = which((df.raw$DateTime.POSIXct.adj >= t.start) &
+                        (df.raw$DateTime.POSIXct.adj < t.stop) & 
+                        cc.WSWD)
+      
+      # number of rows
+      t.row.n = length(t.row.i)
+      df.10min.new$n.rows[row.i] <- t.row.n
+      
+      if (t.row.n>0){
+        
+        # now get the vector average wind speed and direction
+        WScomps <- GetUVfromWSWD(speed = df.raw$WS80[t.row.i],
+                                 dir = df.raw$WD80[t.row.i])
+        WSWD <- GetWSWDfromUV(u = mean(WScomps$u,
+                                       na.rm = TRUE),
+                              v = mean(WScomps$v,
+                                       na.rm = TRUE))
+        df.10min.new$WS80[row.i] <- WSWD$speed
+        df.10min.new$WD80[row.i] <- WSWD$dir
+        
+        # Get the average the Ti
+        df.10min.new$Ti80[row.i] <- mean(df.raw$Ti80[t.row.i],
+                                         na.rm = TRUE)
+      } else {
+        df.10min.new$WS80[row.i] <- NA
+        df.10min.new$WD80[row.i] <- NA
+        df.10min.new$Ti80[row.i] <- NA
+      }
+    }
+    # save this year's data
+    cat(paste0("Saving 10 minute data from ", year.n, "...\n"))
+    save(list = c("df.10min.new"),
+         file = file.path(data.dir,
+                          "processed",
+                          paste0(year.n, "_10minData.Rdata")))
+  }
+  
+}
+# tidy up
+rm(list = c("df.10min.new","df.raw"))
+```
+
+The processed _.Rdata_ data are read in from `r data.dir`. Importing pre-existing data means that the the time-consuming step of processing the raw data every time can be avoided.
+
+```{r Load data, echo = FALSE, warning=FALSE}
+rm(list = c("df.raw","df.new","df.10min.all"))
+# load existing data
+data.files = dir(file.path(data.dir,"processed"),
+                 recursive = TRUE,
+                 pattern = "\\_10minData.Rdata$")
+for (file in data.files){
+  cat(paste0("Reading ", file, "\n"))
+  load(file = file.path(data.dir,"processed",file))
+  # save the data into a usable data frame
+  if (exists("df.10min.all")){
+    cat(paste0("Concatening data to df.10min.all\n"))
+    df.10min.all <- rbind(df.10min.all,
+                          df.10min.new)
+  } else {
+    cat(paste0("Making new df.10min.all\n"))
+    df.10min.all <- df.10min.new
+  }
+}
+
+```
+
+<!-- Set graphics defaults-->
+```{r set graphics theme, echo = FALSE, warning=FALSE}
+# configure graphics appearance
+theme_set(theme_NREL(base_size = 8, 
+                     base_family = "sans"))
+```
+
+<!-- Define the start and stop times for the data -->
+``` {r redefine data start and stop, echo = FALSE, warning=FALSE}
+# redefine the start and stop of the data based on the 10-minute data
+date.start = min(df.10min.all$DateTime.POSIXct.adj, na.rm = TRUE)
+date.stop = max(df.10min.all$DateTime.POSIXct.adj, na.rm = TRUE)
+```
+
+<!-- get the calendar month and year -->
+``` {r data year and month, echo = FALSE, warning=FALSE}
+# add year and month to the data so that we can use that
+df.10min.all$month.B <- factor(format(df.10min.all$DateTime.POSIXct.adj,
+                                      "%B"),
+                               month.name)
+df.10min.all$month.b <- factor(format(df.10min.all$DateTime.POSIXct.adj,
+                                      "%b"),
+                               month.abb)
+df.10min.all$year <- factor(format(df.10min.all$DateTime.POSIXct.adj,
+                                   "%Y"),
+                            seq(from = as.numeric(format(date.start,"%Y")),
+                                to = as.numeric(format(date.stop,"%Y")),
+                                by = 1),
+                            ordered = TRUE)
+```
+
+# Results
+The following results are based on data obtained during the period from `r date.start` to `r date.stop`.
+
+## Data Availability
+The following figure shows the availability of the data used in this analysis. Data are plotted as the number of non-NA 10-minute 80-m wind speed data points per month, expressed as a percentage of the maximum possible for that month. 
+
+``` {r availability, fig.width=6.5, fig.height=6, echo = FALSE, warning=FALSE}
+
+p <- PlotAvailability(df.in = df.10min.all,
+                      caption = dataCaption(date.start,
+                                            date.stop,
+                                            project.who = project.who)) +
+  labs(title = "Availability of M2 Data",
+       subtitle = "Showing non-NA ")
+
+print(p)
+
+# save the plot
+filename = "DataAvailability.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 4, 
+       units = "in", 
+       dpi = 300)
+```
+
+Data in the plot are grouped by the number of datapoints that are averaged per 10-minute interval. This averaging process is required as the M2 data are recorded with varying temporal resolution; from 2011 onward, they were recorded at 1-minute intervals. Therefore, there should be a maximum of 10 samples per 10-minute period. 
+
+## Wind Roses
+The following figure shows the wind rose created from the entire data set. It covers the period from `r date.start` to `r date.stop`. This can be considered the climatic wind rose.
+
+``` {r NWTC wind rose, fig.width=6.5, fig.height=5, echo=FALSE, warning=FALSE}
+
+p <- PlotWindrose(data = df.10min.all,
+                  spd = "WS80",
+                  dir = "WD80",
+                  spdmin = 0,
+                  dirres = 30) +
+  labs(title = "Wind Frequency and Direction",
+       subtitle = "No filters applied",
+       caption = dataCaption(date.start,
+                             date.stop,
+                             project.who = project.who))
+
+print(p)
+
+filename = "NWTCWindRose.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 6, 
+       units = "in", 
+       dpi = 300)
+```
+
+The following plot shows the wind rose in each year. There is some variability from year to year. Some of the reasons for the variability are explored in @Clifton_2012_e.
+
+``` {r annual wind roses, fig.width=6.5, fig.height=5, echo=FALSE, warning=FALSE}
+p <- p +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.length = unit(0,"pt")) +
+  facet_wrap(~year,
+             ncol = 5)
+
+print(p)
+
+filename = "AnnualWindRoses.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 6, 
+       units = "in", 
+       dpi = 300)
+
+```
+
+The following plot shows the wind rose for the 80-m level on the M2 tower in 2015. This plot is provided for comparison to data available through NREL's Measurement and Instrument Data Center, or MIDC. The MIDC version can be accessed [via this link](https://www.nrel.gov/midc/apps/plotrose.pl?site=NWTC&outputgif=0&year=2015&month=10&season=0&type=2&level=80). Note that the MIDC plot uses 1-minute data and results are therefore slightly different to this plot.
+
+``` {r 2015 wind rose, fig.width=6.5, fig.height=5, echo=FALSE, warning=FALSE}
+p <- PlotWindrose(data = df.10min.all[df.10min.all$year == 2015,],
+                  spd = "WS80",
+                  dir = "WD80",
+                  #spdmin = 0,
+                  dirres = 45) +
+  labs(title = "2015 Wind Frequency and Direction",
+       subtitle = "No filters applied",
+       caption = dataCaption(date.start = min(df.10min.all[df.10min.all$year == 2015,"DateTime.POSIXct.adj"]),
+                             date.stop = max(df.10min.all[df.10min.all$year == 2015,"DateTime.POSIXct.adj"]),
+                             project.who = project.who))
+
+print(p)
+
+filename = "2015WindRose.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 6, 
+       units = "in", 
+       dpi = 300)
+
+```
+
+## Monthly Wind Characteristics
+
+```{r wind direction sectors, fig.width=6.5, fig.height=5, echo = FALSE, warning=FALSE}
+dWD = 30
+df.10min.all$WD80.bin <- BinByWD(df.10min.all$WD80,
+                                 dWD = 30,
+                                 sep = " to ",
+                                 useDegs = TRUE)
+```
+
+Winds at the NWTC show a clear seasonal cycle of direction and speed. This can be seen in the following figure, which shows the annual variaiblity of the number of 10-minute intervals where the wind speed exceeds 3 m/s, in each wind direction sector.  In this analysis we use `r dWD` degree wind direction sectors, centered on 0°.
+
+As discussed in @Clifton_2012_e, there is a clear annual cycle of wind direction, with westerly through north winds being more common in the winter months (October through April).
+
+```{r frequency of wind direction, fig.width=6.5, fig.height=5, echo = FALSE, warning=FALSE}
+df.10min.WDfreq.annual <- aggregate(cbind(n = WS80) ~ month.B + year+ WD80.bin,
+                                    data = df.10min.all[df.10min.all$WS80>3,],
+                                    FUN = function(x){
+                                      length(x[!is.na(x)])
+                                    })
+
+p <- ggplot(data = df.10min.WDfreq.annual,
+            aes(x = month.B,
+                y = n)) +
+  geom_boxplot(outlier.size = 0.5) + 
+  facet_wrap(~ WD80.bin,
+             ncol = 3) +
+  labs(title = "Wind Frequency by Wind Direction Sector",
+       subtitle = "Annual variability of wind speeds greater than 3 m/s",
+       x = "Month",
+       y = "Number of 10-minute periods per year",
+       caption = dataCaption(date.start,
+                             date.stop,
+                             project.who = project.who)) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+print(p)    
+
+filename = "WindFrequencyByWindDirection.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 9, 
+       units = "in", 
+       dpi = 300)
+
+```
+
+## Turbulence Intensity
+
+Turbulence intensity is the standard deviation of wind speed in a 10-minute interval, normalized by wind speed.
+
+<!-- The following plot shows the turbulence intensity as a function of wind speed in each wind direction bin. Data are limited to 10-minute mean wind speeds greater than 2 m/s. -->
+
+```{r turbulence intensity versus wind speed, fig.width=6.5, fig.height=5, echo = FALSE, eval = FALSE, warning=FALSE}
+
+# Plot the raw data
+p <- PlotTiScatter(df.obs = with(df.10min.all,
+                                 data.frame(WS = WS80,
+                                            WD.bin = WD80.bin,
+                                            Ti = Ti80)),
+                   caption = dataCaption(date.start,
+                                         date.stop,
+                                         project.who = project.who))
+p <- p +
+  facet_wrap(~ WD.bin,
+             ncol = 3) 
+print(p)            
+
+# save the results
+filename = "TIScatterByWindDirection.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 8, 
+       units = "in", 
+       dpi = 300)
+```
+
+The following plot shows the turbulence intensity statistics in each wind speed bin. The data used in this plot are not filtered by direction. The plot uses the same convention as @Kelley_52353.
+
+```{r turbulence intensity in wind speed bins, fig.width=6.5, fig.height=4, echo = FALSE, warning=FALSE}
+p <- PlotTiBoxAndWhiskers(df.obs = with(df.10min.all,
+                                        data.frame(WS = WS80,
+                                                   WD.bin = WD80.bin,
+                                                   Ti = Ti80)),
+                          caption = dataCaption(date.start,
+                                                date.stop,
+                                                project.who = project.who))
+print(p)
+
+# save the results
+filename = "TIBoxPlotAllData.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+The following plots show the variation of turbulence intensity by wind direction sector. As seen earlier, there is clear variation by wind direction, which is a result of the variation in upwind conditions with direction at the NWTC.
+
+``` {r Plot turbulence intensity versus wind speed in each direction bin, echo = FALSE, fig.width=6.5, fig.height=4, warning=FALSE}
+# add the effect of wind direction
+p <- PlotTiBoxAndWhiskers(df.obs = with(df.10min.all,
+                                        data.frame(WS = WS80,
+                                                   WD.bin = WD80.bin,
+                                                   Ti = Ti80)),
+                          caption = dataCaption(date.start,
+                                                date.stop,
+                                                project.who = project.who)) + 
+  facet_wrap(~ WD.bin,
+             ncol = 3) +
+  labs(title = "Turbulence Intensity by Wind Direction")
+
+print(p)
+
+filename = "TIBoxPlotByWindDirection.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 8, 
+       units = "in", 
+       dpi = 300)
+
+
+```
+
+In the next plot, data are limited to the direction sector between 255° and 315° upwind of the M2 tower. This sector is the dominant wind direction during the winter months.
+
+``` {r Ti in the WNW bin, echo = FALSE, warning=FALSE, fig.width=6.5, fig.height=4}
+# add the effect of wind direction
+p <- PlotTiBoxAndWhiskers(df.obs = na.omit(with(df.10min.all[(df.10min.all$WD80 >= 255) & 
+                                                               (df.10min.all$WD80 <= 315),],
+                                                data.frame(WS = WS80,
+                                                           Ti = Ti80))),
+                          caption = dataCaption(date.start,
+                                                date.stop,
+                                                project.who = project.who)) +
+  labs(title = "Turbulence Intensity for Winds from 255° to 315°")
+
+print(p)
+
+filename = "TIBoxPlotWNWSector.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 6, 
+       units = "in", 
+       dpi = 300)
+```
+
+
+## Wind speed distributions
+The following plots show fits to wind speed data using a Weibull distribution. The fit is made to the raw data. The range of the data used is from 2.5 m/s to 30.5 m/s. It should be noted that fitting data with a weibull curve is recognized as being very difficult.
+
+The fit in the following plot uses all data.
+
+```{r weibull fits by sector, fig.width=6.5, fig.height=5, echo = FALSE, warning=FALSE}
+
+p <- PlotWeibullFitsByWD(df = data.frame(WS = df.10min.all$WS80,
+                                         WD.bin = "All Data"),
+                         caption = dataCaption(date.start,
+                                               date.stop,
+                                               project.who = project.who))
+
+print(p)
+
+# save the results
+filename = "WeibullFitToAllData.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 8, 
+       units = "in", 
+       dpi = 300)
+```
+
+Fits in the next plot are made to the data in each wind direction sector.
+
+```{r weibull versus direction, fig.width=6.5, fig.height=5, echo = FALSE, warning=FALSE}
+
+p <- PlotWeibullFitsByWD(df = data.frame(WS = df.10min.all$WS80,
+                                         WD.bin = df.10min.all$WD80.bin),
+                         caption = dataCaption(date.start,
+                                               date.stop,
+                                               project.who = project.who))
+
+print(p)
+
+# save the results
+filename = "WeibullFitsByWindDirection.png"
+
+ggsave(filename = file.path(figure.dir,
+                            filename),
+       width = 6, 
+       height = 6, 
+       units = "in", 
+       dpi = 300)
+
+```
+
+
+# Summary of NWTC M2 Conditions
+The previous plots are based on data from `r format(nrow(df.10min.all), big.mark = ",")` 10-minute data records. During this period, the mean conditions measured by the tower were:
+
+```{r Winds over cutin, echo = FALSE, warning=FALSE}
+# mean wind speed
+V.ave.all = mean(df.10min.all$WS80,
+                 na.rm = TRUE)
+
+V.ave.overcutin = mean(df.10min.all$WS80[df.10min.all$WS80 > 2.5],
+                       na.rm = TRUE)
+#
+V.f.overcutin = 100*sum(df.10min.all$WS80[!is.na(df.10min.all$WS80)] > 2.5) / nrow(df.10min.all)
+
+WDmode = modeStat(round(na.omit(df.10min.all$WD80[df.10min.all$WS80 > 2.5])))
+
+V.10min.max = max(df.10min.all$WS80,
+                  na.rm = TRUE)
+
+# now save this
+df.summary <- data.frame(Parameter = "V~ave\\ (all)~",
+                         Value = format(V.ave.all,
+                                        digits = 3,
+                                        nsmall = 1),
+                         Notes = "Average wind speed for all data")
+df.summary <- rbind(df.summary,
+                     data.frame(Parameter = "V~ave\\ (operating)~",
+                         Value = format(V.ave.overcutin, 
+                                        digits = 3,
+                                        nsmall = 1),
+                         Notes = "Average wind speed for winds over 2.5 m/s"),
+                     data.frame(Parameter = "f~(operating)~",
+                         Value = format(V.f.overcutin, 
+                                        digits = 3,
+                                        nsmall = 1),
+                         Notes = "Frequency of winds over 2.5 m/s"),
+                     data.frame(Parameter = "V~(max,\\ 10-minute)~",
+                         Value = format(V.10min.max, 
+                                        digits = 3,
+                                        nsmall = 1),
+                         Notes = "Maximum 10-minute average wind speed"),
+                    data.frame(Parameter = "WD (°T)",
+                         Value = format(WDmode, 
+                                        digits = 3,
+                                        nsmall = 1),
+                         Notes = "Mode of wind direction for winds over 2.5 m/s"))
+
+```
+
+```{r Show results, echo = FALSE, results = "asis"}
+
+kable(df.summary,
+      digits = 2)
+
+```
+
+
+
+# Bibliography

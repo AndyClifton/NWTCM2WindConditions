@@ -1,0 +1,22 @@
+\begin{thebibliography}{2}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Clifton and Lundquist(2012)]{Clifton_2012_e}
+Andrew Clifton and Julie~K. Lundquist.
+\newblock Data clustering reveals climate impacts on local wind phenomena.
+\newblock \emph{Journal of Applied Meteorology and Climatology}, 51:\penalty0
+  1547--1557, 2012.
+\newblock \doi{10.1175/JAMC-D-11-0227.1}.
+
+\bibitem[Kelley(2011)]{Kelley_52353}
+Neil~D. Kelley.
+\newblock Turbulence-turbine interaction: The basis for the development of the
+  {T}urb{S}im stochastic simulator.
+\newblock Technical Report TP-5000-52353, National Renewable Energy Laboratory,
+  2011.
+
+\end{thebibliography}
